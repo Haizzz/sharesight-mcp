@@ -23,1100 +23,758 @@
  *
  * @example
  * ```bash
- * # Run with access token
+ * # Run with OAuth (recommended)
+ * SHARESIGHT_CLIENT_ID=xxx SHARESIGHT_CLIENT_SECRET=yyy node dist/index.js
+ *
+ * # Run with access token (legacy)
  * SHARESIGHT_ACCESS_TOKEN=xxx node dist/index.js
  * ```
  *
  * @module index
  */
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  Tool,
-} from "@modelcontextprotocol/sdk/types.js";
-import { SharesightClient } from "./sharesight-client.js";
+import { z } from "zod";
+import { SharesightClient, TokenProvider } from "./sharesight-client.js";
+import { OAuthManager } from "./oauth.js";
 
-// Get access token from environment
-const ACCESS_TOKEN = process.env.SHARESIGHT_ACCESS_TOKEN;
+async function createTokenProvider(): Promise<TokenProvider> {
+  const accessToken = process.env.SHARESIGHT_ACCESS_TOKEN;
+  const clientId = process.env.SHARESIGHT_CLIENT_ID;
+  const clientSecret = process.env.SHARESIGHT_CLIENT_SECRET;
 
-if (!ACCESS_TOKEN) {
+  if (accessToken) {
+    return accessToken;
+  }
+
+  if (clientId && clientSecret) {
+    const oauth = new OAuthManager({ clientId, clientSecret });
+
+    if (!oauth.hasValidTokens()) {
+      await oauth.runAuthorizationFlow();
+    }
+
+    return oauth;
+  }
+
   console.error(
-    "Error: SHARESIGHT_ACCESS_TOKEN environment variable is required"
+    "Error: Authentication required. Provide either:\n" +
+    "  - SHARESIGHT_CLIENT_ID and SHARESIGHT_CLIENT_SECRET (recommended)\n" +
+    "  - SHARESIGHT_ACCESS_TOKEN (legacy)"
   );
   process.exit(1);
 }
 
-const client = new SharesightClient(ACCESS_TOKEN);
+function formatResult(result: unknown) {
+  return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+}
 
-// Define all tools
-const tools: Tool[] = [
+function formatError(error: unknown) {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+
+  return { content: [{ type: "text" as const, text: `Error: ${errorMessage}` }], isError: true };
+}
+
+function registerTools(server: McpServer, client: SharesightClient) {
   // ==================== Portfolios ====================
-  {
-    name: "list_portfolios",
-    description:
-      "Retrieves a list of the user's portfolios. Optionally filter by consolidated view or instrument.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        consolidated: {
-          type: "boolean",
-          description: "Set to true to see consolidated portfolio views",
-        },
-        instrument_id: {
-          type: "number",
-          description:
-            "Filter by instrument ID. When set, consolidated defaults to false",
-        },
-      },
+
+  server.registerTool(
+    "list_portfolios",
+    {
+      description: "Retrieves a list of the user's portfolios. Optionally filter by consolidated view or instrument.",
+      inputSchema: z.object({
+        consolidated: z.boolean().optional().describe("Set to true to see consolidated portfolio views"),
+        instrument_id: z.number().optional().describe("Filter by instrument ID. When set, consolidated defaults to false"),
+      }),
     },
-  },
-  {
-    name: "get_portfolio",
+    async (args) => {
+      try {
+        const result = await client.listPortfolios(args);
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_portfolio",
+    {
     description: "Retrieves a single portfolio by ID",
-    inputSchema: {
-      type: "object",
-      properties: {
-        portfolio_id: {
-          type: "number",
-          description: "The portfolio ID",
-        },
-        consolidated: {
-          type: "boolean",
-          description: "Set to true if the portfolio is consolidated",
-        },
-      },
-      required: ["portfolio_id"],
+      inputSchema: z.object({
+        portfolio_id: z.number().describe("The portfolio ID"),
+        consolidated: z.boolean().optional().describe("Set to true if the portfolio is consolidated"),
+      }),
     },
-  },
-  {
-    name: "list_portfolio_holdings",
+    async (args) => {
+      try {
+        const result = await client.getPortfolio(args.portfolio_id, args.consolidated);
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "list_portfolio_holdings",
+    {
     description: "Retrieves all holdings for a specific portfolio",
-    inputSchema: {
-      type: "object",
-      properties: {
-        portfolio_id: {
-          type: "number",
-          description: "The portfolio ID",
-        },
-        consolidated: {
-          type: "boolean",
-          description: "True if a consolidated view is requested",
-        },
-      },
-      required: ["portfolio_id"],
+      inputSchema: z.object({
+        portfolio_id: z.number().describe("The portfolio ID"),
+        consolidated: z.boolean().optional().describe("True if a consolidated view is requested"),
+      }),
     },
-  },
-  {
-    name: "get_portfolio_user_setting",
-    description:
-      "Retrieves user settings for a portfolio (chart type, grouping, etc.)",
-    inputSchema: {
-      type: "object",
-      properties: {
-        portfolio_id: {
-          type: "number",
-          description: "The portfolio ID",
-        },
-        consolidated: {
-          type: "boolean",
-          description: "Set to true for consolidated portfolio views",
-        },
-      },
-      required: ["portfolio_id"],
+    async (args) => {
+      try {
+        const result = await client.listPortfolioHoldings(args.portfolio_id, args.consolidated);
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_portfolio_user_setting",
+    {
+      description: "Retrieves user settings for a portfolio (chart type, grouping, etc.)",
+      inputSchema: z.object({
+        portfolio_id: z.number().describe("The portfolio ID"),
+        consolidated: z.boolean().optional().describe("Set to true for consolidated portfolio views"),
+      }),
     },
-  },
-  {
-    name: "update_portfolio_user_setting",
+    async (args) => {
+      try {
+        const result = await client.showPortfolioUserSetting(args.portfolio_id, args.consolidated);
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "update_portfolio_user_setting",
+    {
     description: "Updates user settings for a portfolio",
-    inputSchema: {
-      type: "object",
-      properties: {
-        portfolio_id: {
-          type: "number",
-          description: "The portfolio ID",
-        },
-        consolidated: {
-          type: "boolean",
-          description: "Set to true for consolidated portfolio views",
-        },
-        portfolio_chart: {
-          type: "string",
-          description:
-            "Chart type: VALUE, VALUELINE, GROWTH, BENCHMARK, or HIDE",
-        },
-        holding_chart: {
-          type: "string",
-          description:
-            "Holding chart type: PRICE, HOLDING_VALUE, BENCHMARK, or HIDE",
-        },
-        combined: {
-          type: "boolean",
-          description:
-            "True to combine holdings in consolidated portfolios",
-        },
-        grouping: {
-          type: "string",
-          description: "Grouping to use (e.g., market, country, currency)",
-        },
-        include_sold_shares: {
-          type: "boolean",
-          description: "True to include sold shares in calculations",
-        },
-      },
-      required: ["portfolio_id"],
+      inputSchema: z.object({
+        portfolio_id: z.number().describe("The portfolio ID"),
+        consolidated: z.boolean().optional().describe("Set to true for consolidated portfolio views"),
+        portfolio_chart: z.string().optional().describe("Chart type: VALUE, VALUELINE, GROWTH, BENCHMARK, or HIDE"),
+        holding_chart: z.string().optional().describe("Holding chart type: PRICE, HOLDING_VALUE, BENCHMARK, or HIDE"),
+        combined: z.boolean().optional().describe("True to combine holdings in consolidated portfolios"),
+        grouping: z.string().optional().describe("Grouping to use (e.g., market, country, currency)"),
+        include_sold_shares: z.boolean().optional().describe("True to include sold shares in calculations"),
+      }),
     },
-  },
-
-  // ==================== Holdings ====================
-  {
-    name: "list_holdings",
-    description: "Retrieves a list of all holdings across all portfolios",
-    inputSchema: {
-      type: "object",
-      properties: {},
-    },
-  },
-  {
-    name: "get_holding",
-    description: "Retrieves details of a specific holding",
-    inputSchema: {
-      type: "object",
-      properties: {
-        holding_id: {
-          type: "number",
-          description: "The holding ID",
-        },
-        average_purchase_price: {
-          type: "boolean",
-          description: "Include average purchase price in response",
-        },
-        cost_base: {
-          type: "boolean",
-          description: "Include cost base in response",
-        },
-        values_over_time: {
-          type: "string",
-          description:
-            "Set to 'true' for values from inception, or a date (YYYY-MM-DD) for start date",
-        },
-      },
-      required: ["holding_id"],
-    },
-  },
-  {
-    name: "update_holding",
-    description: "Updates a holding (currently supports DRP settings)",
-    inputSchema: {
-      type: "object",
-      properties: {
-        holding_id: {
-          type: "number",
-          description: "The holding ID",
-        },
-        enable_drp: {
-          type: "boolean",
-          description: "Set to true to enable DRP, false to disable",
-        },
-        drp_mode_setting: {
-          type: "string",
-          description: "DRP mode: up, down, half, or down_track",
-        },
-      },
-      required: ["holding_id"],
-    },
-  },
-  {
-    name: "delete_holding",
-    description: "Deletes a holding",
-    inputSchema: {
-      type: "object",
-      properties: {
-        holding_id: {
-          type: "number",
-          description: "The holding ID to delete",
-        },
-      },
-      required: ["holding_id"],
-    },
-  },
-
-  // ==================== Custom Investments ====================
-  {
-    name: "list_custom_investments",
-    description: "Retrieves a list of custom investments",
-    inputSchema: {
-      type: "object",
-      properties: {
-        portfolio_id: {
-          type: "number",
-          description: "Optional portfolio ID to filter by",
-        },
-      },
-    },
-  },
-  {
-    name: "get_custom_investment",
-    description: "Retrieves a single custom investment by ID",
-    inputSchema: {
-      type: "object",
-      properties: {
-        id: {
-          type: "number",
-          description: "The custom investment ID",
-        },
-      },
-      required: ["id"],
-    },
-  },
-  {
-    name: "create_custom_investment",
-    description: "Creates a new custom investment",
-    inputSchema: {
-      type: "object",
-      properties: {
-        portfolio_id: {
-          type: "number",
-          description: "Portfolio ID (optional, links to owner if not provided)",
-        },
-        code: {
-          type: "string",
-          description: "The investment code",
-        },
-        name: {
-          type: "string",
-          description: "The name of the custom investment",
-        },
-        country_code: {
-          type: "string",
-          description: "Country code (e.g., AU, NZ, US)",
-        },
-        investment_type: {
-          type: "string",
-          description:
-            "Type: ORDINARY, WARRANT, SHAREFUND, PROPFUND, PREFERENCE, STAPLEDSEC, OPTIONS, RIGHTS, MANAGED_FUND, FIXED_INTEREST, PIE",
-        },
-        face_value: {
-          type: "number",
-          description: "Face value per unit (FIXED_INTEREST only)",
-        },
-        interest_rate: {
-          type: "number",
-          description: "Initial interest rate (FIXED_INTEREST only)",
-        },
-        income_type: {
-          type: "string",
-          description: "DIVIDEND or INTEREST (FIXED_INTEREST only)",
-        },
-        payment_frequency: {
-          type: "string",
-          description:
-            "ON_MATURITY, YEARLY, TWICE_YEARLY, QUARTERLY, MONTHLY (FIXED_INTEREST only)",
-        },
-        first_payment_date: {
-          type: "string",
-          description: "First payment date YYYY-MM-DD (FIXED_INTEREST only)",
-        },
-        maturity_date: {
-          type: "string",
-          description: "Maturity date YYYY-MM-DD (FIXED_INTEREST only)",
-        },
-        auto_calc_income: {
-          type: "boolean",
-          description: "Auto-populate income payments (FIXED_INTEREST only)",
-        },
-      },
-      required: ["code", "name", "country_code", "investment_type"],
-    },
-  },
-  {
-    name: "update_custom_investment",
-    description: "Updates an existing custom investment",
-    inputSchema: {
-      type: "object",
-      properties: {
-        id: {
-          type: "number",
-          description: "The custom investment ID",
-        },
-        code: {
-          type: "string",
-          description: "The investment code",
-        },
-        name: {
-          type: "string",
-          description: "The name of the custom investment",
-        },
-        portfolio_id: {
-          type: "number",
-          description: "Portfolio ID to associate with",
-        },
-        face_value: {
-          type: "number",
-          description: "Face value per unit",
-        },
-        interest_rate: {
-          type: "number",
-          description: "Interest rate",
-        },
-        income_type: {
-          type: "string",
-          description: "DIVIDEND or INTEREST",
-        },
-        payment_frequency: {
-          type: "string",
-          description: "Payment frequency",
-        },
-        first_payment_date: {
-          type: "string",
-          description: "First payment date YYYY-MM-DD",
-        },
-        maturity_date: {
-          type: "string",
-          description: "Maturity date YYYY-MM-DD",
-        },
-        auto_calc_income: {
-          type: "boolean",
-          description: "Auto-populate income payments",
-        },
-      },
-      required: ["id"],
-    },
-  },
-  {
-    name: "delete_custom_investment",
-    description: "Deletes a custom investment",
-    inputSchema: {
-      type: "object",
-      properties: {
-        id: {
-          type: "number",
-          description: "The custom investment ID to delete",
-        },
-      },
-      required: ["id"],
-    },
-  },
-
-  // ==================== Custom Investment Prices ====================
-  {
-    name: "list_custom_investment_prices",
-    description: "Retrieves prices for a custom investment",
-    inputSchema: {
-      type: "object",
-      properties: {
-        custom_investment_id: {
-          type: "number",
-          description: "The custom investment ID",
-        },
-        start_date: {
-          type: "string",
-          description: "Start date YYYY-MM-DD",
-        },
-        end_date: {
-          type: "string",
-          description: "End date YYYY-MM-DD",
-        },
-        page: {
-          type: "string",
-          description: "Pagination pointer",
-        },
-        per_page: {
-          type: "number",
-          description: "Items per page (max 100)",
-        },
-      },
-      required: ["custom_investment_id"],
-    },
-  },
-  {
-    name: "create_custom_investment_price",
-    description: "Creates a price entry for a custom investment",
-    inputSchema: {
-      type: "object",
-      properties: {
-        custom_investment_id: {
-          type: "number",
-          description: "The custom investment ID",
-        },
-        last_traded_price: {
-          type: "number",
-          description: "The price in instrument currency",
-        },
-        last_traded_on: {
-          type: "string",
-          description: "The date YYYY-MM-DD",
-        },
-      },
-      required: ["custom_investment_id", "last_traded_price", "last_traded_on"],
-    },
-  },
-  {
-    name: "update_custom_investment_price",
-    description: "Updates a price for a custom investment",
-    inputSchema: {
-      type: "object",
-      properties: {
-        price_id: {
-          type: "number",
-          description: "The price ID",
-        },
-        last_traded_price: {
-          type: "number",
-          description: "The price in instrument currency",
-        },
-        last_traded_on: {
-          type: "string",
-          description: "The date YYYY-MM-DD",
-        },
-      },
-      required: ["price_id"],
-    },
-  },
-  {
-    name: "delete_custom_investment_price",
-    description: "Deletes a price for a custom investment",
-    inputSchema: {
-      type: "object",
-      properties: {
-        price_id: {
-          type: "number",
-          description: "The price ID to delete",
-        },
-      },
-      required: ["price_id"],
-    },
-  },
-
-  // ==================== Coupon Rates ====================
-  {
-    name: "list_coupon_rates",
-    description:
-      "Retrieves coupon rates for a fixed interest custom investment",
-    inputSchema: {
-      type: "object",
-      properties: {
-        instrument_id: {
-          type: "number",
-          description: "The custom investment instrument ID",
-        },
-        start_date: {
-          type: "string",
-          description: "Start date YYYY-MM-DD",
-        },
-        end_date: {
-          type: "string",
-          description: "End date YYYY-MM-DD",
-        },
-        page: {
-          type: "string",
-          description: "Pagination pointer",
-        },
-        per_page: {
-          type: "number",
-          description: "Items per page (max 100)",
-        },
-      },
-      required: ["instrument_id"],
-    },
-  },
-  {
-    name: "create_coupon_rate",
-    description: "Creates a coupon rate for a custom investment",
-    inputSchema: {
-      type: "object",
-      properties: {
-        instrument_id: {
-          type: "number",
-          description: "The custom investment instrument ID",
-        },
-        interest_rate: {
-          type: "number",
-          description: "The interest rate as a percentage",
-        },
-        date: {
-          type: "string",
-          description: "The date from which the rate applies YYYY-MM-DD",
-        },
-      },
-      required: ["instrument_id", "interest_rate", "date"],
-    },
-  },
-  {
-    name: "update_coupon_rate",
-    description: "Updates a coupon rate",
-    inputSchema: {
-      type: "object",
-      properties: {
-        id: {
-          type: "number",
-          description: "The coupon rate ID",
-        },
-        interest_rate: {
-          type: "number",
-          description: "The interest rate as a percentage",
-        },
-        date: {
-          type: "string",
-          description: "The date from which the rate applies YYYY-MM-DD",
-        },
-      },
-      required: ["id", "interest_rate", "date"],
-    },
-  },
-  {
-    name: "delete_coupon_rate",
-    description: "Deletes a coupon rate",
-    inputSchema: {
-      type: "object",
-      properties: {
-        id: {
-          type: "number",
-          description: "The coupon rate ID to delete",
-        },
-      },
-      required: ["id"],
-    },
-  },
-
-  // ==================== Coupon Codes ====================
-  {
-    name: "show_coupon_code",
-    description: "Returns the coupon code applied to the current user",
-    inputSchema: {
-      type: "object",
-      properties: {},
-    },
-  },
-  {
-    name: "apply_coupon_code",
-    description: "Applies a coupon code to the current user",
-    inputSchema: {
-      type: "object",
-      properties: {
-        code: {
-          type: "string",
-          description: "The coupon code to apply",
-        },
-      },
-      required: ["code"],
-    },
-  },
-  {
-    name: "delete_coupon_code",
-    description: "Removes the coupon code from the current user",
-    inputSchema: {
-      type: "object",
-      properties: {},
-    },
-  },
-
-  // ==================== Reports ====================
-  {
-    name: "get_performance_report",
-    description:
-      "Retrieves the performance report for a portfolio with gains, holdings breakdown, and benchmarks",
-    inputSchema: {
-      type: "object",
-      properties: {
-        portfolio_id: {
-          type: "number",
-          description: "The portfolio ID",
-        },
-        start_date: {
-          type: "string",
-          description: "Start date YYYY-MM-DD (defaults to portfolio inception)",
-        },
-        end_date: {
-          type: "string",
-          description: "End date YYYY-MM-DD (defaults to today)",
-        },
-        consolidated: {
-          type: "boolean",
-          description: "Set to true for consolidated portfolio views",
-        },
-        include_sales: {
-          type: "boolean",
-          description: "Include or exclude sales",
-        },
-        report_combined: {
-          type: "boolean",
-          description:
-            "Receive combined totals for same instruments across portfolios",
-        },
-        grouping: {
-          type: "string",
-          description:
-            "Group by: country, currency, custom_group, industry_classification, investment_type, market, portfolio, sector_classification, ungrouped",
-        },
-        custom_group_id: {
-          type: "number",
-          description: "Custom group ID (requires grouping=custom_group)",
-        },
-        include_limited: {
-          type: "boolean",
-          description: "Include holdings limited by user plan",
-        },
-        benchmark_code: {
-          type: "string",
-          description: "Benchmark code and market (e.g., SPY.NYSE)",
-        },
-      },
-      required: ["portfolio_id"],
-    },
-  },
-  {
-    name: "get_performance_index_chart",
-    description:
-      "Returns performance index chart data points for visualizing portfolio performance over time",
-    inputSchema: {
-      type: "object",
-      properties: {
-        portfolio_id: {
-          type: "number",
-          description: "The portfolio ID",
-        },
-        consolidated: {
-          type: "boolean",
-          description: "True if consolidated view is requested",
-        },
-        start_date: {
-          type: "string",
-          description: "Start date YYYY-MM-DD (defaults to inception)",
-        },
-        end_date: {
-          type: "string",
-          description: "End date YYYY-MM-DD (defaults to today)",
-        },
-        grouping: {
-          type: "string",
-          description:
-            "Group by: country, currency, custom_group, industry_classification, investment_type, market, portfolio, sector_classification, ungrouped",
-        },
-        custom_group_id: {
-          type: "number",
-          description: "Custom group ID (requires grouping=custom_group)",
-        },
-        benchmark_code: {
-          type: "string",
-          description: "Benchmark code and market (e.g., SPY.NYSE)",
-        },
-      },
-      required: ["portfolio_id"],
-    },
-  },
-
-  // ==================== Metadata ====================
-  {
-    name: "list_countries",
-    description: "Retrieves Sharesight country definitions",
-    inputSchema: {
-      type: "object",
-      properties: {
-        supported: {
-          type: "boolean",
-          description: "Filter by supported status (omit for all)",
-        },
-      },
-    },
-  },
-
-  // ==================== OAuth ====================
-  {
-    name: "revoke_api_access",
-    description:
-      "Disconnects API access for the user. Invalidates ALL access and refresh tokens.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        client_id: {
-          type: "string",
-          description: "The client application ID",
-        },
-      },
-      required: ["client_id"],
-    },
-  },
-];
-
-// Create server
-const server = new Server(
-  {
-    name: "sharesight-mcp",
-    version: "1.0.0",
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
-);
-
-// Handle list tools
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return { tools };
-});
-
-// Handle tool calls
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-
-  try {
-    let result: unknown;
-
-    switch (name) {
-      // Portfolios
-      case "list_portfolios":
-        result = await client.listPortfolios(args as { consolidated?: boolean; instrument_id?: number });
-        break;
-
-      case "get_portfolio":
-        result = await client.getPortfolio(
-          (args as { portfolio_id: number }).portfolio_id,
-          (args as { consolidated?: boolean }).consolidated
-        );
-        break;
-
-      case "list_portfolio_holdings":
-        result = await client.listPortfolioHoldings(
-          (args as { portfolio_id: number }).portfolio_id,
-          (args as { consolidated?: boolean }).consolidated
-        );
-        break;
-
-      case "get_portfolio_user_setting":
-        result = await client.showPortfolioUserSetting(
-          (args as { portfolio_id: number }).portfolio_id,
-          (args as { consolidated?: boolean }).consolidated
-        );
-        break;
-
-      case "update_portfolio_user_setting": {
-        const updateArgs = args as {
-          portfolio_id: number;
-          consolidated?: boolean;
-          portfolio_chart?: string;
-          holding_chart?: string;
-          combined?: boolean;
-          grouping?: string;
-          include_sold_shares?: boolean;
-        };
-        const { portfolio_id, consolidated, ...settings } = updateArgs;
-        result = await client.updatePortfolioUserSetting(
+    async (args) => {
+      try {
+        const { portfolio_id, consolidated, ...settings } = args;
+        const result = await client.updatePortfolioUserSetting(
           portfolio_id,
           { portfolio_user_settings: settings },
           consolidated
         );
-        break;
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
       }
-
-      // Holdings
-      case "list_holdings":
-        result = await client.listHoldings();
-        break;
-
-      case "get_holding": {
-        const holdingArgs = args as {
-          holding_id: number;
-          average_purchase_price?: boolean;
-          cost_base?: boolean;
-          values_over_time?: string;
-        };
-        result = await client.getHolding(holdingArgs.holding_id, {
-          average_purchase_price: holdingArgs.average_purchase_price,
-          cost_base: holdingArgs.cost_base,
-          values_over_time: holdingArgs.values_over_time,
-        });
-        break;
-      }
-
-      case "update_holding": {
-        const updateHoldingArgs = args as {
-          holding_id: number;
-          enable_drp?: boolean;
-          drp_mode_setting?: string;
-        };
-        result = await client.updateHolding(updateHoldingArgs.holding_id, {
-          enable_drp: updateHoldingArgs.enable_drp,
-          drp_mode_setting: updateHoldingArgs.drp_mode_setting,
-        });
-        break;
-      }
-
-      case "delete_holding":
-        result = await client.deleteHolding((args as { holding_id: number }).holding_id);
-        break;
-
-      // Custom Investments
-      case "list_custom_investments":
-        result = await client.listCustomInvestments(
-          (args as { portfolio_id?: number }).portfolio_id
-        );
-        break;
-
-      case "get_custom_investment":
-        result = await client.getCustomInvestment((args as { id: number }).id);
-        break;
-
-      case "create_custom_investment": {
-        const createArgs = args as {
-          portfolio_id?: number;
-          code: string;
-          name: string;
-          country_code: string;
-          investment_type: string;
-          face_value?: number;
-          interest_rate?: number;
-          income_type?: string;
-          payment_frequency?: string;
-          first_payment_date?: string;
-          maturity_date?: string;
-          auto_calc_income?: boolean;
-        };
-        result = await client.createCustomInvestment(createArgs);
-        break;
-      }
-
-      case "update_custom_investment": {
-        const updateCIArgs = args as {
-          id: number;
-          code?: string;
-          name?: string;
-          portfolio_id?: number;
-          face_value?: number;
-          interest_rate?: number;
-          income_type?: string;
-          payment_frequency?: string;
-          first_payment_date?: string;
-          maturity_date?: string;
-          auto_calc_income?: boolean;
-        };
-        const { id, ...updateData } = updateCIArgs;
-        result = await client.updateCustomInvestment(id, updateData);
-        break;
-      }
-
-      case "delete_custom_investment":
-        result = await client.deleteCustomInvestment((args as { id: number }).id);
-        break;
-
-      // Custom Investment Prices
-      case "list_custom_investment_prices": {
-        const pricesArgs = args as {
-          custom_investment_id: number;
-          start_date?: string;
-          end_date?: string;
-          page?: string;
-          per_page?: number;
-        };
-        result = await client.listCustomInvestmentPrices(
-          pricesArgs.custom_investment_id,
-          {
-            start_date: pricesArgs.start_date,
-            end_date: pricesArgs.end_date,
-            page: pricesArgs.page,
-            per_page: pricesArgs.per_page,
-          }
-        );
-        break;
-      }
-
-      case "create_custom_investment_price": {
-        const createPriceArgs = args as {
-          custom_investment_id: number;
-          last_traded_price: number;
-          last_traded_on: string;
-        };
-        result = await client.createCustomInvestmentPrice(
-          createPriceArgs.custom_investment_id,
-          {
-            last_traded_price: createPriceArgs.last_traded_price,
-            last_traded_on: createPriceArgs.last_traded_on,
-          }
-        );
-        break;
-      }
-
-      case "update_custom_investment_price": {
-        const updatePriceArgs = args as {
-          price_id: number;
-          last_traded_price?: number;
-          last_traded_on?: string;
-        };
-        result = await client.updateCustomInvestmentPrice(
-          updatePriceArgs.price_id,
-          {
-            last_traded_price: updatePriceArgs.last_traded_price,
-            last_traded_on: updatePriceArgs.last_traded_on,
-          }
-        );
-        break;
-      }
-
-      case "delete_custom_investment_price":
-        result = await client.deleteCustomInvestmentPrice(
-          (args as { price_id: number }).price_id
-        );
-        break;
-
-      // Coupon Rates
-      case "list_coupon_rates": {
-        const ratesArgs = args as {
-          instrument_id: number;
-          start_date?: string;
-          end_date?: string;
-          page?: string;
-          per_page?: number;
-        };
-        result = await client.listCouponRates(ratesArgs.instrument_id, {
-          start_date: ratesArgs.start_date,
-          end_date: ratesArgs.end_date,
-          page: ratesArgs.page,
-          per_page: ratesArgs.per_page,
-        });
-        break;
-      }
-
-      case "create_coupon_rate": {
-        const createRateArgs = args as {
-          instrument_id: number;
-          interest_rate: number;
-          date: string;
-        };
-        result = await client.createCouponRate(createRateArgs.instrument_id, {
-          coupon_rate: {
-            interest_rate: createRateArgs.interest_rate,
-            date: createRateArgs.date,
-          },
-        });
-        break;
-      }
-
-      case "update_coupon_rate": {
-        const updateRateArgs = args as {
-          id: number;
-          interest_rate: number;
-          date: string;
-        };
-        result = await client.updateCouponRate(updateRateArgs.id, {
-          coupon_rate: {
-            interest_rate: updateRateArgs.interest_rate,
-            date: updateRateArgs.date,
-          },
-        });
-        break;
-      }
-
-      case "delete_coupon_rate":
-        result = await client.deleteCouponRate((args as { id: number }).id);
-        break;
-
-      // Coupon Codes
-      case "show_coupon_code":
-        result = await client.showCouponCode();
-        break;
-
-      case "apply_coupon_code":
-        result = await client.applyCouponCode((args as { code: string }).code);
-        break;
-
-      case "delete_coupon_code":
-        result = await client.deleteCouponCode();
-        break;
-
-      // Reports
-      case "get_performance_report": {
-        const reportArgs = args as {
-          portfolio_id: number;
-          start_date?: string;
-          end_date?: string;
-          consolidated?: boolean;
-          include_sales?: boolean;
-          report_combined?: boolean;
-          grouping?: string;
-          custom_group_id?: number;
-          include_limited?: boolean;
-          benchmark_code?: string;
-        };
-        result = await client.getPerformanceReport(reportArgs.portfolio_id, {
-          start_date: reportArgs.start_date,
-          end_date: reportArgs.end_date,
-          consolidated: reportArgs.consolidated,
-          include_sales: reportArgs.include_sales,
-          report_combined: reportArgs.report_combined,
-          grouping: reportArgs.grouping,
-          custom_group_id: reportArgs.custom_group_id,
-          include_limited: reportArgs.include_limited,
-          benchmark_code: reportArgs.benchmark_code,
-        });
-        break;
-      }
-
-      case "get_performance_index_chart": {
-        const chartArgs = args as {
-          portfolio_id: number;
-          consolidated?: boolean;
-          start_date?: string;
-          end_date?: string;
-          grouping?: string;
-          custom_group_id?: number;
-          benchmark_code?: string;
-        };
-        result = await client.getPerformanceIndexChart(chartArgs.portfolio_id, {
-          consolidated: chartArgs.consolidated,
-          start_date: chartArgs.start_date,
-          end_date: chartArgs.end_date,
-          grouping: chartArgs.grouping,
-          custom_group_id: chartArgs.custom_group_id,
-          benchmark_code: chartArgs.benchmark_code,
-        });
-        break;
-      }
-
-      // Metadata
-      case "list_countries":
-        result = await client.listCountries(
-          (args as { supported?: boolean }).supported
-        );
-        break;
-
-      // OAuth
-      case "revoke_api_access":
-        result = await client.revokeApiAccess(
-          (args as { client_id: string }).client_id
-        );
-        break;
-
-      default:
-        throw new Error(`Unknown tool: ${name}`);
     }
+  );
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(result, null, 2),
-        },
-      ],
-    };
+  // ==================== Holdings ====================
+
+  server.registerTool(
+    "list_holdings",
+  {
+    description: "Retrieves a list of all holdings across all portfolios",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      try {
+        const result = await client.listHoldings();
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_holding",
+    {
+    description: "Retrieves details of a specific holding",
+      inputSchema: z.object({
+        holding_id: z.number().describe("The holding ID"),
+        average_purchase_price: z.boolean().optional().describe("Include average purchase price in response"),
+        cost_base: z.boolean().optional().describe("Include cost base in response"),
+        values_over_time: z.string().optional().describe("Set to 'true' for values from inception, or a date (YYYY-MM-DD) for start date"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.getHolding(args.holding_id, {
+          average_purchase_price: args.average_purchase_price,
+          cost_base: args.cost_base,
+          values_over_time: args.values_over_time,
+        });
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "update_holding",
+    {
+    description: "Updates a holding (currently supports DRP settings)",
+      inputSchema: z.object({
+        holding_id: z.number().describe("The holding ID"),
+        enable_drp: z.boolean().optional().describe("Set to true to enable DRP, false to disable"),
+        drp_mode_setting: z.string().optional().describe("DRP mode: up, down, half, or down_track"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.updateHolding(args.holding_id, {
+          enable_drp: args.enable_drp,
+          drp_mode_setting: args.drp_mode_setting,
+        });
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "delete_holding",
+    {
+    description: "Deletes a holding",
+      inputSchema: z.object({
+        holding_id: z.number().describe("The holding ID to delete"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.deleteHolding(args.holding_id);
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  // ==================== Custom Investments ====================
+
+  server.registerTool(
+    "list_custom_investments",
+  {
+    description: "Retrieves a list of custom investments",
+      inputSchema: z.object({
+        portfolio_id: z.number().optional().describe("Optional portfolio ID to filter by"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.listCustomInvestments(args.portfolio_id);
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_custom_investment",
+    {
+    description: "Retrieves a single custom investment by ID",
+      inputSchema: z.object({
+        id: z.number().describe("The custom investment ID"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.getCustomInvestment(args.id);
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "create_custom_investment",
+    {
+    description: "Creates a new custom investment",
+      inputSchema: z.object({
+        portfolio_id: z.number().optional().describe("Portfolio ID (optional, links to owner if not provided)"),
+        code: z.string().describe("The investment code"),
+        name: z.string().describe("The name of the custom investment"),
+        country_code: z.string().describe("Country code (e.g., AU, NZ, US)"),
+        investment_type: z.string().describe("Type: ORDINARY, WARRANT, SHAREFUND, PROPFUND, PREFERENCE, STAPLEDSEC, OPTIONS, RIGHTS, MANAGED_FUND, FIXED_INTEREST, PIE"),
+        face_value: z.number().optional().describe("Face value per unit (FIXED_INTEREST only)"),
+        interest_rate: z.number().optional().describe("Initial interest rate (FIXED_INTEREST only)"),
+        income_type: z.string().optional().describe("DIVIDEND or INTEREST (FIXED_INTEREST only)"),
+        payment_frequency: z.string().optional().describe("ON_MATURITY, YEARLY, TWICE_YEARLY, QUARTERLY, MONTHLY (FIXED_INTEREST only)"),
+        first_payment_date: z.string().optional().describe("First payment date YYYY-MM-DD (FIXED_INTEREST only)"),
+        maturity_date: z.string().optional().describe("Maturity date YYYY-MM-DD (FIXED_INTEREST only)"),
+        auto_calc_income: z.boolean().optional().describe("Auto-populate income payments (FIXED_INTEREST only)"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.createCustomInvestment(args);
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "update_custom_investment",
+    {
+    description: "Updates an existing custom investment",
+      inputSchema: z.object({
+        id: z.number().describe("The custom investment ID"),
+        code: z.string().optional().describe("The investment code"),
+        name: z.string().optional().describe("The name of the custom investment"),
+        portfolio_id: z.number().optional().describe("Portfolio ID to associate with"),
+        face_value: z.number().optional().describe("Face value per unit"),
+        interest_rate: z.number().optional().describe("Interest rate"),
+        income_type: z.string().optional().describe("DIVIDEND or INTEREST"),
+        payment_frequency: z.string().optional().describe("Payment frequency"),
+        first_payment_date: z.string().optional().describe("First payment date YYYY-MM-DD"),
+        maturity_date: z.string().optional().describe("Maturity date YYYY-MM-DD"),
+        auto_calc_income: z.boolean().optional().describe("Auto-populate income payments"),
+      }),
+    },
+    async (args) => {
+      try {
+        const { id, ...updateData } = args;
+        const result = await client.updateCustomInvestment(id, updateData);
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "delete_custom_investment",
+    {
+    description: "Deletes a custom investment",
+      inputSchema: z.object({
+        id: z.number().describe("The custom investment ID to delete"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.deleteCustomInvestment(args.id);
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  // ==================== Custom Investment Prices ====================
+
+  server.registerTool(
+    "list_custom_investment_prices",
+  {
+    description: "Retrieves prices for a custom investment",
+      inputSchema: z.object({
+        custom_investment_id: z.number().describe("The custom investment ID"),
+        start_date: z.string().optional().describe("Start date YYYY-MM-DD"),
+        end_date: z.string().optional().describe("End date YYYY-MM-DD"),
+        page: z.string().optional().describe("Pagination pointer"),
+        per_page: z.number().optional().describe("Items per page (max 100)"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.listCustomInvestmentPrices(args.custom_investment_id, {
+          start_date: args.start_date,
+          end_date: args.end_date,
+          page: args.page,
+          per_page: args.per_page,
+        });
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "create_custom_investment_price",
+    {
+    description: "Creates a price entry for a custom investment",
+      inputSchema: z.object({
+        custom_investment_id: z.number().describe("The custom investment ID"),
+        last_traded_price: z.number().describe("The price in instrument currency"),
+        last_traded_on: z.string().describe("The date YYYY-MM-DD"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.createCustomInvestmentPrice(args.custom_investment_id, {
+          last_traded_price: args.last_traded_price,
+          last_traded_on: args.last_traded_on,
+        });
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "update_custom_investment_price",
+    {
+    description: "Updates a price for a custom investment",
+      inputSchema: z.object({
+        price_id: z.number().describe("The price ID"),
+        last_traded_price: z.number().optional().describe("The price in instrument currency"),
+        last_traded_on: z.string().optional().describe("The date YYYY-MM-DD"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.updateCustomInvestmentPrice(args.price_id, {
+          last_traded_price: args.last_traded_price,
+          last_traded_on: args.last_traded_on,
+        });
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "delete_custom_investment_price",
+    {
+    description: "Deletes a price for a custom investment",
+      inputSchema: z.object({
+        price_id: z.number().describe("The price ID to delete"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.deleteCustomInvestmentPrice(args.price_id);
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  // ==================== Coupon Rates ====================
+
+  server.registerTool(
+    "list_coupon_rates",
+    {
+      description: "Retrieves coupon rates for a fixed interest custom investment",
+      inputSchema: z.object({
+        instrument_id: z.number().describe("The custom investment instrument ID"),
+        start_date: z.string().optional().describe("Start date YYYY-MM-DD"),
+        end_date: z.string().optional().describe("End date YYYY-MM-DD"),
+        page: z.string().optional().describe("Pagination pointer"),
+        per_page: z.number().optional().describe("Items per page (max 100)"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.listCouponRates(args.instrument_id, {
+          start_date: args.start_date,
+          end_date: args.end_date,
+          page: args.page,
+          per_page: args.per_page,
+        });
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "create_coupon_rate",
+    {
+      description: "Creates a coupon rate for a custom investment",
+      inputSchema: z.object({
+        instrument_id: z.number().describe("The custom investment instrument ID"),
+        interest_rate: z.number().describe("The interest rate as a percentage"),
+        date: z.string().describe("The date from which the rate applies YYYY-MM-DD"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.createCouponRate(args.instrument_id, {
+          coupon_rate: {
+            interest_rate: args.interest_rate,
+            date: args.date,
+          },
+        });
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "update_coupon_rate",
+    {
+      description: "Updates a coupon rate",
+      inputSchema: z.object({
+        id: z.number().describe("The coupon rate ID"),
+        interest_rate: z.number().describe("The interest rate as a percentage"),
+        date: z.string().describe("The date from which the rate applies YYYY-MM-DD"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.updateCouponRate(args.id, {
+          coupon_rate: {
+            interest_rate: args.interest_rate,
+            date: args.date,
+          },
+        });
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "delete_coupon_rate",
+    {
+      description: "Deletes a coupon rate",
+      inputSchema: z.object({
+        id: z.number().describe("The coupon rate ID to delete"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.deleteCouponRate(args.id);
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  // ==================== Coupon Codes ====================
+
+  server.registerTool(
+    "show_coupon_code",
+    {
+      description: "Returns the coupon code applied to the current user",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      try {
+        const result = await client.showCouponCode();
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "apply_coupon_code",
+    {
+      description: "Applies a coupon code to the current user",
+      inputSchema: z.object({
+        code: z.string().describe("The coupon code to apply"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.applyCouponCode(args.code);
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "delete_coupon_code",
+    {
+      description: "Removes the coupon code from the current user",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      try {
+        const result = await client.deleteCouponCode();
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  // ==================== Reports ====================
+
+  server.registerTool(
+    "get_performance_report",
+    {
+      description: "Retrieves the performance report for a portfolio with gains, holdings breakdown, and benchmarks",
+      inputSchema: z.object({
+        portfolio_id: z.number().describe("The portfolio ID"),
+        start_date: z.string().optional().describe("Start date YYYY-MM-DD (defaults to portfolio inception)"),
+        end_date: z.string().optional().describe("End date YYYY-MM-DD (defaults to today)"),
+        consolidated: z.boolean().optional().describe("Set to true for consolidated portfolio views"),
+        include_sales: z.boolean().optional().describe("Include or exclude sales"),
+        report_combined: z.boolean().optional().describe("Receive combined totals for same instruments across portfolios"),
+        grouping: z.string().optional().describe("Group by: country, currency, custom_group, industry_classification, investment_type, market, portfolio, sector_classification, ungrouped"),
+        custom_group_id: z.number().optional().describe("Custom group ID (requires grouping=custom_group)"),
+        include_limited: z.boolean().optional().describe("Include holdings limited by user plan"),
+        benchmark_code: z.string().optional().describe("Benchmark code and market (e.g., SPY.NYSE)"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.getPerformanceReport(args.portfolio_id, {
+          start_date: args.start_date,
+          end_date: args.end_date,
+          consolidated: args.consolidated,
+          include_sales: args.include_sales,
+          report_combined: args.report_combined,
+          grouping: args.grouping,
+          custom_group_id: args.custom_group_id,
+          include_limited: args.include_limited,
+          benchmark_code: args.benchmark_code,
+        });
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_performance_index_chart",
+    {
+      description: "Returns performance index chart data points for visualizing portfolio performance over time",
+      inputSchema: z.object({
+        portfolio_id: z.number().describe("The portfolio ID"),
+        consolidated: z.boolean().optional().describe("True if consolidated view is requested"),
+        start_date: z.string().optional().describe("Start date YYYY-MM-DD (defaults to inception)"),
+        end_date: z.string().optional().describe("End date YYYY-MM-DD (defaults to today)"),
+        grouping: z.string().optional().describe("Group by: country, currency, custom_group, industry_classification, investment_type, market, portfolio, sector_classification, ungrouped"),
+        custom_group_id: z.number().optional().describe("Custom group ID (requires grouping=custom_group)"),
+        benchmark_code: z.string().optional().describe("Benchmark code and market (e.g., SPY.NYSE)"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.getPerformanceIndexChart(args.portfolio_id, {
+          consolidated: args.consolidated,
+          start_date: args.start_date,
+          end_date: args.end_date,
+          grouping: args.grouping,
+          custom_group_id: args.custom_group_id,
+          benchmark_code: args.benchmark_code,
+        });
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  // ==================== Metadata ====================
+
+  server.registerTool(
+    "list_countries",
+    {
+      description: "Retrieves Sharesight country definitions",
+      inputSchema: z.object({
+        supported: z.boolean().optional().describe("Filter by supported status (omit for all)"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.listCountries(args.supported);
+
+        return formatResult(result);
+      } catch (error) {
+        return formatError(error);
+      }
+    }
+  );
+
+  // ==================== OAuth ====================
+
+  server.registerTool(
+    "revoke_api_access",
+    {
+      description: "Disconnects API access for the user. Invalidates ALL access and refresh tokens.",
+      inputSchema: z.object({
+        client_id: z.string().describe("The client application ID"),
+      }),
+    },
+    async (args) => {
+      try {
+        const result = await client.revokeApiAccess(args.client_id);
+
+        return formatResult(result);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Error: ${errorMessage}`,
-        },
-      ],
-      isError: true,
-    };
-  }
-});
+        return formatError(error);
+      }
+    }
+  );
+}
 
-// Start server
 async function main() {
+  const tokenProvider = await createTokenProvider();
+  const client = new SharesightClient(tokenProvider);
+
+  const server = new McpServer({
+    name: "sharesight-mcp",
+    version: "1.0.0",
+  });
+
+  registerTools(server, client);
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Sharesight MCP server running on stdio");

@@ -29,31 +29,47 @@ import {
   UpdatePortfolioUserSettingRequest,
   BaseResponse,
 } from "./types.js";
+import { OAuthManager } from "./oauth.js";
 
 /** Base URL for all Sharesight API v3 endpoints */
 const API_BASE_URL = "https://api.sharesight.com/api/v3";
+
+export type TokenProvider = string | OAuthManager;
 
 /**
  * SharesightClient provides methods for interacting with the Sharesight API v3.
  *
  * @example
  * ```typescript
+ * // Using static access token
  * const client = new SharesightClient(process.env.SHARESIGHT_ACCESS_TOKEN);
+ *
+ * // Using OAuth manager for automatic token refresh
+ * const oauth = new OAuthManager({ clientId, clientSecret });
+ * const client = new SharesightClient(oauth);
+ *
  * const portfolios = await client.listPortfolios();
  * console.log(portfolios.portfolios);
  * ```
  */
 export class SharesightClient {
-  /** OAuth2 access token for API authentication */
-  private accessToken: string;
+  private tokenProvider: TokenProvider;
 
   /**
    * Creates a new SharesightClient instance.
    *
-   * @param accessToken - OAuth2 access token obtained through Sharesight's OAuth flow
+   * @param tokenProvider - Either a static access token string or an OAuthManager instance
    */
-  constructor(accessToken: string) {
-    this.accessToken = accessToken;
+  constructor(tokenProvider: TokenProvider) {
+    this.tokenProvider = tokenProvider;
+  }
+
+  private async getAccessToken(): Promise<string> {
+    if (typeof this.tokenProvider === "string") {
+      return this.tokenProvider;
+    }
+
+    return this.tokenProvider.getValidAccessToken();
   }
 
   /**
@@ -86,10 +102,12 @@ export class SharesightClient {
       });
     }
 
+    const accessToken = await this.getAccessToken();
+
     // Set required headers for Sharesight API
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${this.accessToken}`,
+      Authorization: `Bearer ${accessToken}`,
     };
 
     const options: RequestInit = {
@@ -726,14 +744,8 @@ export class SharesightClient {
       benchmark_code?: string;
     }
   ): Promise<PerformanceReportResponse> {
-    const queryParams: Record<string, string | number | boolean | undefined> = {
-      ...options,
-    };
-
-    // Labels array needs special handling (not supported in simple query params)
-    if (options?.labels) {
-      delete queryParams.labels;
-    }
+    const { labels, ...rest } = options || {};
+    const queryParams: Record<string, string | number | boolean | undefined> = rest;
 
     return this.request<PerformanceReportResponse>(
       "GET",

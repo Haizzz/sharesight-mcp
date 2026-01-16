@@ -79,9 +79,51 @@ This server exposes **27 tools** covering all Sharesight v3 API endpoints:
 
 - **Node.js 18+** - Required runtime
 - **Sharesight Account** - With API access enabled
-- **OAuth2 Access Token** - Obtained through Sharesight's OAuth flow
+- **OAuth2 Credentials** - Client ID and Secret from Sharesight
 
 ## Installation
+
+### Option 1: Use via npx (Recommended)
+
+No installation required! Configure your MCP client to run directly via npx:
+
+```json
+{
+  "mcpServers": {
+    "sharesight": {
+      "command": "npx",
+      "args": ["-y", "sharesight-mcp"],
+      "env": {
+        "SHARESIGHT_CLIENT_ID": "your_client_id",
+        "SHARESIGHT_CLIENT_SECRET": "your_client_secret"
+      }
+    }
+  }
+}
+```
+
+### Option 2: Global Install
+
+```bash
+npm install -g sharesight-mcp
+```
+
+Then configure with:
+```json
+{
+  "mcpServers": {
+    "sharesight": {
+      "command": "sharesight-mcp",
+      "env": {
+        "SHARESIGHT_CLIENT_ID": "your_client_id",
+        "SHARESIGHT_CLIENT_SECRET": "your_client_secret"
+      }
+    }
+  }
+}
+```
+
+### Option 3: From Source
 
 ```bash
 # Clone or download this repository
@@ -96,24 +138,32 @@ npm run build
 
 ## Authentication
 
-Sharesight uses OAuth 2.0 for API authentication. To obtain an access token:
+This server supports two authentication methods:
+
+### Method 1: OAuth with Client Credentials (Recommended)
+
+Provide your Sharesight OAuth client credentials. The server handles the full OAuth flow automatically:
 
 1. **Register your application** with Sharesight to get `client_id` and `client_secret`
-2. **Implement OAuth flow** to get authorization from users
-3. **Exchange authorization code** for access and refresh tokens
-4. **Store tokens securely** and refresh as needed
+2. **Set environment variables** `SHARESIGHT_CLIENT_ID` and `SHARESIGHT_CLIENT_SECRET`
+3. **First run**: The server will print an authorization URL - open it in your browser, log in, and paste the authorization code back
+4. **Subsequent runs**: Tokens are stored in `~/.sharesight-mcp/tokens.json` and refreshed automatically
 
-See [Sharesight OAuth Documentation](https://api.sharesight.com/doc/api/v3) for detailed instructions.
+### Method 2: Static Access Token (Legacy)
+
+If you already have an access token, you can use it directly:
+
+```json
+{
+  "env": {
+    "SHARESIGHT_ACCESS_TOKEN": "your_access_token"
+  }
+}
+```
+
+Note: You'll need to manually refresh this token when it expires.
 
 ## Configuration
-
-### Environment Variable
-
-Set the `SHARESIGHT_ACCESS_TOKEN` environment variable:
-
-```bash
-export SHARESIGHT_ACCESS_TOKEN="your_oauth_access_token"
-```
 
 ### Claude Desktop Configuration
 
@@ -126,15 +176,60 @@ Add to your Claude Desktop config file:
 {
   "mcpServers": {
     "sharesight": {
-      "command": "node",
-      "args": ["D:/sharesight-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "sharesight-mcp"],
       "env": {
-        "SHARESIGHT_ACCESS_TOKEN": "your_oauth_access_token"
+        "SHARESIGHT_CLIENT_ID": "your_client_id",
+        "SHARESIGHT_CLIENT_SECRET": "your_client_secret"
       }
     }
   }
 }
 ```
+
+If you installed from source, use the absolute path instead:
+
+```json
+{
+  "mcpServers": {
+    "sharesight": {
+      "command": "node",
+      "args": ["/path/to/sharesight-mcp/dist/index.js"],
+      "env": {
+        "SHARESIGHT_CLIENT_ID": "your_client_id",
+        "SHARESIGHT_CLIENT_SECRET": "your_client_secret"
+      }
+    }
+  }
+}
+```
+
+### First-Time Authorization
+
+On first run with OAuth credentials, the server will prompt for authorization:
+
+```
+=== Sharesight Authorization Required ===
+
+1. Open this URL in your browser:
+
+   https://api.sharesight.com/oauth2/authorize?...
+
+2. Log in and authorize the application
+3. Copy the authorization code and paste it below
+
+Authorization code: <paste code here>
+```
+
+After successful authorization, tokens are saved and you won't need to authorize again unless they're revoked.
+
+### Token Storage
+
+OAuth tokens are stored at:
+- **Linux/macOS:** `~/.sharesight-mcp/tokens.json`
+- **Windows:** `%USERPROFILE%\.sharesight-mcp\tokens.json`
+
+To re-authorize, delete this file and restart the server.
 
 ## Usage Examples
 
@@ -171,6 +266,7 @@ Once configured, you can interact with Sharesight using natural language:
 sharesight-mcp/
 ├── src/
 │   ├── index.ts              # MCP server entry point with tool definitions
+│   ├── oauth.ts              # OAuth 2.0 flow and token management
 │   ├── sharesight-client.ts  # Sharesight API client implementation
 │   └── types.ts              # TypeScript type definitions
 ├── dist/                     # Compiled JavaScript (after build)
@@ -259,10 +355,11 @@ Common errors:
 
 ## Security Notes
 
-- **Never commit access tokens** to version control
+- **Never commit credentials** (client secrets, access tokens) to version control
 - **Use environment variables** for sensitive configuration
-- **Refresh tokens** before they expire
-- **Revoke access** when users disconnect their accounts
+- **Token storage**: Tokens are stored in `~/.sharesight-mcp/tokens.json` - ensure this location is secured
+- **Automatic refresh**: When using OAuth credentials, tokens are refreshed automatically
+- **Revoke access**: Use the `revoke_api_access` tool or delete `~/.sharesight-mcp/tokens.json` to disconnect
 
 ## License
 
