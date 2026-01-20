@@ -34,17 +34,11 @@ import { OAuthManager } from "./oauth.js";
 /** Base URL for all Sharesight API v3 endpoints */
 const API_BASE_URL = "https://api.sharesight.com/api/v3";
 
-export type TokenProvider = string | OAuthManager;
-
 /**
  * SharesightClient provides methods for interacting with the Sharesight API v3.
  *
  * @example
  * ```typescript
- * // Using static access token
- * const client = new SharesightClient(process.env.SHARESIGHT_ACCESS_TOKEN);
- *
- * // Using OAuth manager for automatic token refresh
  * const oauth = new OAuthManager({ clientId, clientSecret });
  * const client = new SharesightClient(oauth);
  *
@@ -53,23 +47,19 @@ export type TokenProvider = string | OAuthManager;
  * ```
  */
 export class SharesightClient {
-  private tokenProvider: TokenProvider;
+  private oauth: OAuthManager;
 
   /**
    * Creates a new SharesightClient instance.
    *
-   * @param tokenProvider - Either a static access token string or an OAuthManager instance
+   * @param oauth - OAuthManager instance for authentication
    */
-  constructor(tokenProvider: TokenProvider) {
-    this.tokenProvider = tokenProvider;
+  constructor(oauth: OAuthManager) {
+    this.oauth = oauth;
   }
 
   private async getAccessToken(): Promise<string> {
-    if (typeof this.tokenProvider === "string") {
-      return this.tokenProvider;
-    }
-
-    return this.tokenProvider.getValidAccessToken();
+    return this.oauth.getValidAccessToken();
   }
 
   /**

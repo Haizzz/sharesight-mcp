@@ -6,8 +6,7 @@
   "types": "dist/index.d.ts",
   "type": "module",
   "bin": {
-    "sharesight-mcp": "./dist/index.js",
-    "sharesight-mcp-auth": "./dist/auth-cli.js"
+    "sharesight-mcp": "./dist/index.js"
   },
   "files": [
     "dist"

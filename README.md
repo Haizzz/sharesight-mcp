@@ -2,6 +2,54 @@
 
 A Model Context Protocol (MCP) server that provides AI assistants with access to the [Sharesight](https://www.sharesight.com/) portfolio tracking platform via the v3 API.
 
+## Quick Start
+
+### Step 1: Get OAuth Credentials
+
+You'll need a **Client ID** and **Client Secret** from Sharesight to use this server.
+
+**How to get credentials:**
+- Contact Sharesight support at support@sharesight.com to request API access
+- Visit the [Sharesight API documentation](https://api.sharesight.com/doc/api/v3) for more information
+- API access may require a specific Sharesight plan
+
+### Step 2: Run One-Time Authentication
+
+```bash
+npx github:Haizzz/sharesight-mcp auth
+```
+
+The CLI will:
+1. Prompt for your Client ID and Client Secret
+2. Display a URL to open in your browser
+3. Ask you to log in to Sharesight and authorize the app
+4. Prompt you to paste the authorization code
+5. Save tokens locally (they refresh automatically)
+
+### Step 3: Add MCP Server Configuration
+
+Add to your Claude Desktop config file:
+
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "sharesight": {
+      "command": "npx",
+      "args": ["-y", "github:Haizzz/sharesight-mcp", "serve"],
+      "env": {
+        "SHARESIGHT_CLIENT_ID": "your_client_id",
+        "SHARESIGHT_CLIENT_SECRET": "your_client_secret"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop and you're ready to go!
+
 ## Overview
 
 This MCP server enables Claude and other AI assistants to interact with Sharesight accounts, allowing natural language queries and operations on investment portfolios, holdings, custom investments, and performance reports.
@@ -75,126 +123,27 @@ This server exposes **27 tools** covering all Sharesight v3 API endpoints:
 | `delete_coupon_code` | Remove applied coupon code |
 | `revoke_api_access` | Disconnect API access (invalidates all tokens) |
 
-## Prerequisites
-
-- **Node.js 18+** - Required runtime
-- **Sharesight Account** - With API access enabled
-- **OAuth2 Credentials** - Client ID and Secret from Sharesight
-
-## Installation
-
-### Option 1: Use via npx (Recommended)
-
-No installation required! Configure your MCP client to run directly via npx:
-
-```json
-{
-  "mcpServers": {
-    "sharesight": {
-      "command": "npx",
-      "args": ["-y", "sharesight-mcp"],
-      "env": {
-        "SHARESIGHT_CLIENT_ID": "your_client_id",
-        "SHARESIGHT_CLIENT_SECRET": "your_client_secret"
-      }
-    }
-  }
-}
-```
-
-### Option 2: Global Install
+## Install from Source
 
 ```bash
-npm install -g sharesight-mcp
-```
-
-Then configure with:
-```json
-{
-  "mcpServers": {
-    "sharesight": {
-      "command": "sharesight-mcp",
-      "env": {
-        "SHARESIGHT_CLIENT_ID": "your_client_id",
-        "SHARESIGHT_CLIENT_SECRET": "your_client_secret"
-      }
-    }
-  }
-}
-```
-
-### Option 3: From Source
-
-```bash
-# Clone or download this repository
+git clone https://github.com/Haizzz/sharesight-mcp.git
 cd sharesight-mcp
-
-# Install dependencies
 npm install
-
-# Build TypeScript
 npm run build
 ```
 
-## Authentication
+Then run auth and configure:
 
-This server supports two authentication methods:
-
-### Method 1: OAuth with Client Credentials (Recommended)
-
-Provide your Sharesight OAuth client credentials. The server handles token refresh automatically after initial setup:
-
-1. **Register your application** with Sharesight to get `client_id` and `client_secret`
-2. **Run the one-time authentication setup** (see below)
-3. **Configure the MCP server** with your credentials
-4. **Subsequent runs**: Tokens are stored in `~/.sharesight-mcp/tokens.json` and refreshed automatically
-
-### Method 2: Static Access Token (Legacy)
-
-If you already have an access token, you can use it directly:
-
-```json
-{
-  "env": {
-    "SHARESIGHT_ACCESS_TOKEN": "your_access_token"
-  }
-}
+```bash
+node dist/index.js auth
 ```
-
-Note: You'll need to manually refresh this token when it expires.
-
-## Configuration
-
-### Claude Desktop Configuration
-
-Add to your Claude Desktop config file:
-
-**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "sharesight": {
-      "command": "npx",
-      "args": ["-y", "sharesight-mcp"],
-      "env": {
-        "SHARESIGHT_CLIENT_ID": "your_client_id",
-        "SHARESIGHT_CLIENT_SECRET": "your_client_secret"
-      }
-    }
-  }
-}
-```
-
-If you installed from source, use the absolute path instead:
 
 ```json
 {
   "mcpServers": {
     "sharesight": {
       "command": "node",
-      "args": ["/path/to/sharesight-mcp/dist/index.js"],
+      "args": ["/path/to/sharesight-mcp/dist/index.js", "serve"],
       "env": {
         "SHARESIGHT_CLIENT_ID": "your_client_id",
         "SHARESIGHT_CLIENT_SECRET": "your_client_secret"
@@ -204,156 +153,15 @@ If you installed from source, use the absolute path instead:
 }
 ```
 
-### One-Time Authentication Setup
-
-Before using the MCP server, you need to complete a one-time OAuth authentication. This must be done in a terminal (not through Claude) since it requires interactive input.
-
-**Using npx (Recommended):**
-
-```bash
-npx sharesight-mcp-auth
-```
-
-The CLI will prompt you for your Client ID and Client Secret.
-
-**If installed from source:**
-
-```bash
-node dist/auth-cli.js
-```
-
-The authentication flow will:
-1. Prompt for Client ID and Client Secret (if not in environment)
-2. Display a URL to open in your browser
-3. Ask you to log in and authorize the application
-4. Prompt you to paste the authorization code
-5. Save tokens to `~/.sharesight-mcp/tokens.json`
-
-After successful authentication, tokens are saved and you won't need to authorize again unless they're revoked or you delete the tokens file.
-
-### Token Storage
+## Token Storage
 
 OAuth tokens are stored at:
 - **Linux/macOS:** `~/.sharesight-mcp/tokens.json`
 - **Windows:** `%USERPROFILE%\.sharesight-mcp\tokens.json`
 
-To re-authorize, delete this file and restart the server.
-
-## Usage Examples
-
-Once configured, you can interact with Sharesight using natural language:
-
-### Portfolio Queries
-- "Show me all my portfolios"
-- "What holdings do I have in my retirement portfolio?"
-- "Get the details for portfolio ID 12345"
-
-### Performance Analysis
-- "What's my portfolio performance for 2024?"
-- "Show me a performance report from January to June grouped by market"
-- "Compare my portfolio against the S&P 500 (SPY.NYSE)"
-
-### Holdings Management
-- "List all my holdings"
-- "What's the cost base for my Apple shares?"
-- "Enable dividend reinvestment for holding 67890"
-
-### Custom Investments
-- "Create a custom investment for my property at 123 Main St"
-- "Add a price of $500,000 for my property investment dated today"
-- "List all my custom investments"
-
-### Reports
-- "What are my total gains this financial year?"
-- "Break down my performance by country"
-- "Show me the performance chart data for the last 12 months"
-
-## Project Structure
-
-```
-sharesight-mcp/
-├── src/
-│   ├── index.ts              # MCP server entry point with tool definitions
-│   ├── oauth.ts              # OAuth 2.0 flow and token management
-│   ├── sharesight-client.ts  # Sharesight API client implementation
-│   └── types.ts              # TypeScript type definitions
-├── dist/                     # Compiled JavaScript (after build)
-├── package.json
-├── tsconfig.json
-└── README.md
-```
-
-## Development
-
-```bash
-# Watch mode for development
-npm run dev
-
-# Build for production
-npm run build
-
-# Run the server directly
-npm start
-```
-
-### Adding New Tools
-
-1. Add the endpoint method to `src/sharesight-client.ts`
-2. Add types to `src/types.ts` if needed
-3. Add the tool definition in `src/index.ts` (in the `tools` array)
-4. Add the case handler in the `CallToolRequestSchema` handler
-
-## API Reference
-
-This server implements the [Sharesight v3 API](https://api.sharesight.com/doc/api/v3). Key concepts:
-
-### Date Formats
-All dates use `YYYY-MM-DD` format in the portfolio's timezone.
-
-### Pagination
-List endpoints support cursor-based pagination:
-- `page`: Cursor from previous response
-- `per_page`: Items per page (default: 50, max: 100)
-
-### Grouping Options
-Performance reports support grouping by:
-- `market` - Stock exchange
-- `country` - Country of listing
-- `currency` - Trading currency
-- `investment_type` - Type of investment
-- `industry_classification` - FactSet industry
-- `sector_classification` - FactSet sector
-- `portfolio` - Individual portfolio (for consolidated views)
-- `custom_group` - User-defined groups
-- `ungrouped` - No grouping
-
-### Investment Types
-Custom investments support these types:
-- `ORDINARY` - Ordinary shares
-- `WARRANT` - Warrants
-- `SHAREFUND` - Share funds
-- `PROPFUND` - Property funds
-- `PREFERENCE` - Preference shares
-- `STAPLEDSEC` - Stapled securities
-- `OPTIONS` - Options
-- `RIGHTS` - Rights
-- `MANAGED_FUND` - Managed funds
-- `FIXED_INTEREST` - Fixed interest (bonds, term deposits)
-- `PIE` - Portfolio Investment Entity
+Tokens refresh automatically. To re-authorize, delete the tokens file and run `sharesight-mcp auth` again.
 
 ## Error Handling
-
-The server returns errors in this format:
-
-```json
-{
-  "content": [{
-    "type": "text",
-    "text": "Error: Sharesight API error (401): The OAuth signature can't be verified."
-  }],
-  "isError": true
-}
-```
 
 Common errors:
 - **401** - Invalid or expired access token
@@ -361,13 +169,13 @@ Common errors:
 - **404** - Resource not found
 - **422** - Validation error (check field values)
 
-## Security Notes
+## Development
 
-- **Never commit credentials** (client secrets, access tokens) to version control
-- **Use environment variables** for sensitive configuration
-- **Token storage**: Tokens are stored in `~/.sharesight-mcp/tokens.json` - ensure this location is secured
-- **Automatic refresh**: When using OAuth credentials, tokens are refreshed automatically
-- **Revoke access**: Use the `revoke_api_access` tool or delete `~/.sharesight-mcp/tokens.json` to disconnect
+```bash
+npm run dev     # Watch mode
+npm run build   # Build for production
+npm start       # Run the server
+```
 
 ## License
 
