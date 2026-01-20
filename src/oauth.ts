@@ -1,7 +1,8 @@
 /**
  * OAuth 2.0 Manager for Sharesight API
  *
- * Handles the Authorization Code flow, token storage, and automatic refresh.
+ * Handles token storage and automatic refresh.
+ * Initial authentication is done via the standalone auth-cli.
  * Tokens are persisted to ~/.sharesight-mcp/tokens.json
  *
  * @module oauth
@@ -10,7 +11,6 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import * as readline from "readline";
 
 const AUTH_URL = "https://api.sharesight.com/oauth2/authorize";
 const TOKEN_URL = "https://api.sharesight.com/oauth2/token";
@@ -162,7 +162,7 @@ export class OAuthManager {
 
   async getValidAccessToken(): Promise<string> {
     if (!this.tokens) {
-      throw new Error("Not authorized. Please run authorization flow first.");
+      throw new Error("Not authorized. Please run 'npx sharesight-mcp-auth' first.");
     }
 
     if (this.isTokenExpired()) {
@@ -170,34 +170,5 @@ export class OAuthManager {
     }
 
     return this.tokens.access_token;
-  }
-
-  async runAuthorizationFlow(): Promise<void> {
-    const authUrl = this.getAuthorizationUrl();
-
-    console.error("\n=== Sharesight Authorization Required ===\n");
-    console.error("1. Open this URL in your browser:\n");
-    console.error(`   ${authUrl}\n`);
-    console.error("2. Log in and authorize the application");
-    console.error("3. Copy the authorization code and paste it below\n");
-
-    const code = await this.promptForCode();
-    await this.exchangeCodeForTokens(code.trim());
-
-    console.error("\nAuthorization successful! Tokens saved.\n");
-  }
-
-  private promptForCode(): Promise<string> {
-    return new Promise((resolve) => {
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stderr,
-      });
-
-      rl.question("Authorization code: ", (answer) => {
-        rl.close();
-        resolve(answer);
-      });
-    });
   }
 }

@@ -17,6 +17,8 @@ This is an MCP (Model Context Protocol) server that wraps the Sharesight v3 API,
 sharesight-mcp/
 ├── src/
 │   ├── index.ts              # MCP server - tool definitions and request handlers
+│   ├── auth-cli.ts           # Standalone CLI for one-time OAuth authentication
+│   ├── oauth.ts              # OAuth 2.0 token management and refresh
 │   ├── sharesight-client.ts  # HTTP client for Sharesight API
 │   └── types.ts              # TypeScript interfaces for API types
 ├── dist/                     # Compiled output (gitignored)
@@ -29,9 +31,21 @@ sharesight-mcp/
 
 ### `src/index.ts`
 The main MCP server entry point. Contains:
-- Tool definitions array (`tools`) with JSON Schema for each tool
-- Request handlers for `ListToolsRequestSchema` and `CallToolRequestSchema`
-- Switch statement mapping tool names to client methods
+- Tool definitions using Zod schemas for validation
+- Tool handlers via `server.registerTool()`
+- Token provider setup (OAuth or static token)
+
+### `src/auth-cli.ts`
+Standalone CLI for one-time OAuth authentication. Run via `npx sharesight-mcp-auth`.
+- Prompts for Client ID and Client Secret interactively
+- Guides user through browser authorization flow
+- Saves tokens to `~/.sharesight-mcp/tokens.json`
+
+### `src/oauth.ts`
+OAuth 2.0 manager class handling:
+- Authorization URL generation
+- Token exchange and storage
+- Automatic token refresh
 
 ### `src/sharesight-client.ts`
 HTTP client class with methods for each API endpoint. All methods:
@@ -99,13 +113,22 @@ npm start       # Run the compiled server
 ### Error Handling
 The client throws errors for non-2xx responses. The MCP handler catches these and returns `isError: true` responses.
 
+## Authentication
+
+The server supports two authentication methods:
+
+1. **OAuth (Recommended)**: Run `npx sharesight-mcp-auth` once to authenticate interactively. Tokens are saved to `~/.sharesight-mcp/tokens.json` and refreshed automatically.
+
+2. **Static Token (Legacy)**: Set `SHARESIGHT_ACCESS_TOKEN` env var directly.
+
 ## Testing
 
 Currently no automated tests. Test manually:
 
-1. Set `SHARESIGHT_ACCESS_TOKEN` environment variable
-2. Run `npm start`
-3. Use MCP inspector or Claude Desktop to test tools
+1. Run `npx sharesight-mcp-auth` to authenticate (one-time setup)
+2. Set `SHARESIGHT_CLIENT_ID` and `SHARESIGHT_CLIENT_SECRET` env vars
+3. Run `npm start`
+4. Use MCP inspector or Claude Desktop to test tools
 
 ## Common Tasks
 
@@ -128,5 +151,6 @@ Currently no automated tests. Test manually:
 ## Notes
 
 - The server uses stdio transport (stdin/stdout)
-- Access token must be set via `SHARESIGHT_ACCESS_TOKEN` env var
+- Authentication: Either run `npx sharesight-mcp-auth` first (recommended) or set `SHARESIGHT_ACCESS_TOKEN` env var
+- OAuth tokens are stored at `~/.sharesight-mcp/tokens.json`
 - All tool responses are JSON stringified with 2-space indentation

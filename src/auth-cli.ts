@@ -3,13 +3,12 @@
 /**
  * Standalone CLI for Sharesight OAuth authentication
  *
- * Run this once to complete the OAuth flow and save tokens.
+ * Run this once in a terminal to complete the OAuth flow and save tokens.
+ * The CLI will prompt for Client ID and Client Secret interactively.
  * After authentication, the MCP server will use the saved tokens automatically.
  *
  * Usage:
  *   npx sharesight-mcp-auth
- *   # or
- *   SHARESIGHT_CLIENT_ID=xxx SHARESIGHT_CLIENT_SECRET=yyy npx sharesight-mcp-auth
  *
  * @module auth-cli
  */
