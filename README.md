@@ -142,11 +142,11 @@ This server supports two authentication methods:
 
 ### Method 1: OAuth with Client Credentials (Recommended)
 
-Provide your Sharesight OAuth client credentials. The server handles the full OAuth flow automatically:
+Provide your Sharesight OAuth client credentials. The server handles token refresh automatically after initial setup:
 
 1. **Register your application** with Sharesight to get `client_id` and `client_secret`
-2. **Set environment variables** `SHARESIGHT_CLIENT_ID` and `SHARESIGHT_CLIENT_SECRET`
-3. **First run**: The server will print an authorization URL - open it in your browser, log in, and paste the authorization code back
+2. **Run the one-time authentication setup** (see below)
+3. **Configure the MCP server** with your credentials
 4. **Subsequent runs**: Tokens are stored in `~/.sharesight-mcp/tokens.json` and refreshed automatically
 
 ### Method 2: Static Access Token (Legacy)
@@ -204,24 +204,32 @@ If you installed from source, use the absolute path instead:
 }
 ```
 
-### First-Time Authorization
+### One-Time Authentication Setup
 
-On first run with OAuth credentials, the server will prompt for authorization:
+Before using the MCP server, you need to complete a one-time OAuth authentication. This must be done in a terminal (not through Claude) since it requires interactive input.
 
-```
-=== Sharesight Authorization Required ===
+**Using npx (Recommended):**
 
-1. Open this URL in your browser:
-
-   https://api.sharesight.com/oauth2/authorize?...
-
-2. Log in and authorize the application
-3. Copy the authorization code and paste it below
-
-Authorization code: <paste code here>
+```bash
+npx sharesight-mcp-auth
 ```
 
-After successful authorization, tokens are saved and you won't need to authorize again unless they're revoked.
+The CLI will prompt you for your Client ID and Client Secret.
+
+**If installed from source:**
+
+```bash
+node dist/auth-cli.js
+```
+
+The authentication flow will:
+1. Prompt for Client ID and Client Secret (if not in environment)
+2. Display a URL to open in your browser
+3. Ask you to log in and authorize the application
+4. Prompt you to paste the authorization code
+5. Save tokens to `~/.sharesight-mcp/tokens.json`
+
+After successful authentication, tokens are saved and you won't need to authorize again unless they're revoked or you delete the tokens file.
 
 ### Token Storage
 

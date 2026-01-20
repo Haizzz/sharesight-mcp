@@ -52,7 +52,15 @@ async function createTokenProvider(): Promise<TokenProvider> {
     const oauth = new OAuthManager({ clientId, clientSecret });
 
     if (!oauth.hasValidTokens()) {
-      await oauth.runAuthorizationFlow();
+      console.error(
+        "Error: Not authenticated. Please run the authentication setup first:\n\n" +
+        "  npx sharesight-mcp-auth\n\n" +
+        "Or with environment variables:\n\n" +
+        "  SHARESIGHT_CLIENT_ID=xxx SHARESIGHT_CLIENT_SECRET=yyy npx sharesight-mcp-auth\n\n" +
+        "This only needs to be done once. After authentication, tokens are saved\n" +
+        "and the MCP server will use them automatically."
+      );
+      process.exit(1);
     }
 
     return oauth;
